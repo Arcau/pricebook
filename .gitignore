@@ -1,0 +1,15 @@
+# Runtime data and secrets never belong in the repository
+.env
+data/
+data.bak-*/
+# Android: signing key, private settings and build output
+android/keystore/
+android/.gradle/
+android/.gradle-home/
+android/.dist/
+android/.home/
+android/build/
+android/app/build/
+android/build.log
+android/local.properties
+*.apk

@@ -1,0 +1,26 @@
+services:
+  pricebook:
+    image: "pricebook:0.2.0"
+    build:
+      context: ./app
+    container_name: pricebook
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:3020:3020"        # put a reverse proxy with HTTPS in front of this
+    volumes:
+      - ./data:/app/data             # must be writable by uid 1000
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits: { memory: 256M }
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }

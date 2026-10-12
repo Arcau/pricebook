@@ -1,0 +1,54 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The signing key lives outside version control in ../keystore. Keep it: an update
+// only installs over the existing app when it is signed with the same key.
+def keystoreProps = new Properties()
+def keystoreFile = rootProject.file('keystore/keystore.properties')
+if (keystoreFile.exists()) keystoreFile.withInputStream { keystoreProps.load(it) }
+
+android {
+    namespace 'casa.auron.pricebook'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+
+    defaultConfig {
+        applicationId 'casa.auron.pricebook'
+        minSdk 29
+        targetSdk 34   // 34 on purpose: 35 forces edge-to-edge, which would put the page under the status bar
+        versionCode 2
+        versionName '0.2.0'
+        // The server this build talks to. Set serverUrl in keystore/keystore.properties
+        // (kept out of version control) or pass -PpricebookServerUrl=https://your.server/
+        def serverUrl = (keystoreProps['serverUrl'] ?: project.findProperty('pricebookServerUrl') ?: 'https://prices.example.org/').toString()
+        buildConfigField 'String', 'SERVER_URL', "\"${serverUrl}\""
+        buildConfigField 'String', 'SERVER_HOST', "\"${new URI(serverUrl).host}\""
+    }
+    buildFeatures { buildConfig true }
+
+    signingConfigs {
+        release {
+            storeFile rootProject.file('keystore/pricebook.jks')
+            storePassword keystoreProps['storePassword']
+            keyAlias 'pricebook'
+            keyPassword keystoreProps['storePassword']
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint { abortOnError false; checkReleaseBuilds false }
+}
+
+dependencies {
+    // Google's ready-made barcode scanner screen: no camera permission needed for scanning.
+    implementation 'com.google.android.gms:play-services-code-scanner:16.1.0'
+}

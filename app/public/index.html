@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f6f5c">
+  <title>Pricebook</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Pricebook</h1>
+    <span id="who" class="who"></span>
+  </header>
+  <main id="view" class="view" aria-live="polite"></main>
+  <nav id="tabs" class="tabs" hidden>
+    <button data-tab="scan" type="button">Scan</button>
+    <button data-tab="prices" type="button">Prices</button>
+    <button data-tab="receipts" type="button">Receipts</button>
+    <button data-tab="stores" type="button">Stores</button>
+    <button data-tab="more" type="button">More</button>
+  </nav>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>
