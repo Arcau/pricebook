@@ -44,6 +44,19 @@ web server and SQLite). The web app in `app/public/` is plain HTML, CSS and Java
 no build step. Data lives in `data/`: the database, receipt and price tag photos, and a daily
 backup (14 kept).
 
+## Hardening
+
+The container runs read-only, as a non-root user, with every capability dropped, and the app
+has no third-party dependencies. Two more things are worth doing when it faces the internet:
+
+- **Fence the container off from your network.** By default a container can connect to
+  anything its host can, including admin pages on your LAN. `deploy/egress-firewall.sh` adds
+  host firewall rules so the Pricebook container can only answer its reverse proxy, reach the
+  internet (for Open Food Facts) and, if you use it, your Ollama server.
+- **Keep `data/` private** (`chmod 700 data`): it holds the database and the receipt photos.
+
+An admin can switch an account off under More → People, which signs it out everywhere.
+
 ## Android app
 
 `android/` holds a small Android app that wraps a Pricebook server and adds the phone's own

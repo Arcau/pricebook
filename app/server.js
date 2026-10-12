@@ -79,6 +79,8 @@ db.exec(`
 
 db.exec(`UPDATE prices SET status = 'accepted' WHERE status = 'unverified'`);
 {
+  // An admin can switch an account off: it can no longer sign in and its sessions end.
+  if (!db.prepare('PRAGMA table_info(users)').all().some((column) => column.name === 'disabled')) db.exec('ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0');
   // Proof photos are either a receipt (covers a whole trip) or a shelf price tag (covers one price).
   const columns = db.prepare('PRAGMA table_info(receipts)').all().map((column) => column.name);
   for (const [name, ddl] of [['kind', "TEXT NOT NULL DEFAULT 'receipt'"], ['ai_price_cents', 'INTEGER'], ['ai_name', 'TEXT'], ['ai_checked_at', 'INTEGER']]) {
@@ -172,7 +174,7 @@ function currentUser(req) {
   const token = sessionToken(req);
   if (!token) return null;
   return db.prepare(`SELECT u.id, u.username, u.display_name AS displayName, u.role FROM sessions s JOIN users u ON u.id = s.user_id
-                     WHERE s.token_hash = ? AND s.expires_at > ?`).get(sha256(token), now()) || null;
+                     WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled = 0`).get(sha256(token), now()) || null;
 }
 
 // ── validation ──────────────────────────────────────────────────────────────
@@ -310,12 +312,17 @@ route('POST', /^\/api\/login$/, { open: true }, async ({ req, res }) => {
   const input = await readJson(req);
   const username = String(input.username || '').toLowerCase().trim().slice(0, 24);
   const ip = clientIp(req);
-  if (limited(`login-ip|${ip}`, 20, 15 * 60 * 1000) || limited(`login-user|${username}`, 8, 15 * 60 * 1000)) throw bad('Too many attempts. Try again in 15 minutes.', 429);
-  const row = db.prepare('SELECT id, username, display_name AS displayName, role, pass_hash FROM users WHERE username = ?').get(username);
+  // Lock out one address guessing at one account quickly. The per-account ceiling is kept high on
+  // purpose: a low one would let anybody lock a known username out of their own account.
+  if (limited(`login-ip|${ip}`, 20, 15 * 60 * 1000) || limited(`login-pair|${ip}|${username}`, 8, 15 * 60 * 1000) || limited(`login-user|${username}`, 100, 15 * 60 * 1000)) {
+    throw bad('Too many attempts. Try again in 15 minutes.', 429);
+  }
+  const row = db.prepare('SELECT id, username, display_name AS displayName, role, pass_hash, disabled FROM users WHERE username = ?').get(username);
   // Always run one scrypt so a missing username takes as long as a wrong password.
   const ok = row ? verifyPassword(String(input.password || ''), row.pass_hash) : (hashPassword('timing-equaliser'), false);
   if (!ok) throw bad('Username or password is incorrect.', 401);
-  attempts.delete(`login-user|${username}`);
+  if (row.disabled) throw bad('This account has been switched off. Ask whoever runs this price book.', 403);
+  attempts.delete(`login-pair|${ip}|${username}`);
   res.setHeader('Set-Cookie', startSession(res, row.id));
   return { user: { id: row.id, username: row.username, displayName: row.displayName, role: row.role } };
 });
@@ -475,9 +482,19 @@ route('POST', /^\/api\/invites$/, { admin: true }, ({ user }) => {
 });
 
 route('GET', /^\/api\/users$/, { admin: true }, () => ({
-  users: db.prepare(`SELECT u.id, u.username, u.display_name AS displayName, u.role, u.created_at AS createdAt,
+  users: db.prepare(`SELECT u.id, u.username, u.display_name AS displayName, u.role, u.disabled, u.created_at AS createdAt,
     (SELECT COUNT(*) FROM prices p WHERE p.user_id = u.id) AS priceCount FROM users u ORDER BY u.created_at`).all()
 }));
+
+route('POST', /^\/api\/users\/(\d+)\/disabled$/, { admin: true }, async ({ req, params, user }) => {
+  const input = await readJson(req);
+  const id = Number(params[0]);
+  if (id === user.id) throw bad('You cannot switch off your own account.');
+  if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw bad('That person was not found.', 404);
+  db.prepare('UPDATE users SET disabled = ? WHERE id = ?').run(input.disabled ? 1 : 0, id);
+  if (input.disabled) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+  return { disabled: Boolean(input.disabled) };
+});
 
 route('GET', /^\/api\/export\.csv$/, { stream: true }, ({ res }) => {
   const rows = db.prepare(`SELECT p.barcode, pr.name, pr.brand, pr.size, s.chain, s.suburb, s.state, p.price_cents, p.was_cents, p.on_special, p.observed_on, p.status

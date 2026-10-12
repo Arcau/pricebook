@@ -24,3 +24,10 @@ services:
     logging:
       driver: json-file
       options: { max-size: 10m, max-file: "3" }
+
+# A fixed, tiny subnet so a host firewall can single this container out (see deploy/egress-firewall.sh).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.27.20.0/29

@@ -321,7 +321,13 @@
         invites.invites.length ? h('ul', { class: 'list' }, invites.invites.map((row) => h('li', {}, h('span', { class: 'code' }, row.code),
           h('span', { class: 'muted' }, row.usedBy ? `used by ${row.usedBy}` : row.expiresAt < Date.now() ? 'expired' : 'unused')))) : null));
       nodes.push(h('section', { class: 'card' }, h('h2', {}, 'People'), h('ul', { class: 'list' }, users.users.map((row) => h('li', {},
-        h('span', {}, row.displayName, h('span', { class: 'muted' }, ` · ${row.username}${row.role === 'admin' ? ' · admin' : ''}`)), h('span', { class: 'muted' }, `${row.priceCount} prices`))))));
+        h('span', {}, row.displayName, h('span', { class: 'muted' }, ` · ${row.username}${row.role === 'admin' ? ' · admin' : ''}${row.disabled ? ' · switched off' : ''}`)),
+        h('span', {}, h('span', { class: 'muted' }, `${row.priceCount} prices`),
+          row.id !== state.user.id ? h('button', { class: row.disabled ? 'link' : 'link danger', type: 'button', onclick: guard(async () => {
+            if (!row.disabled && !confirm(`Switch off ${row.displayName}? They are signed out and cannot sign in until you switch them back on.`)) return;
+            await api(`/api/users/${row.id}/disabled`, { method: 'POST', body: { disabled: !row.disabled } });
+            await showMore();
+          }) }, row.disabled ? 'Switch on' : 'Switch off') : null))))));
     }
     view.replaceChildren(...nodes);
   }
