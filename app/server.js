@@ -508,13 +508,54 @@ route('GET', /^\/api\/export\.csv$/, { stream: true }, ({ res }) => {
 });
 
 // Machine lookup for other apps (the family hub). Off unless LOOKUP_API_TOKEN is set.
-route('GET', /^\/api\/v1\/lookup\/(\d{8,14})$/, { open: true }, ({ req, params }) => {
+function requireLookupToken(req) {
   const supplied = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (!LOOKUP_API_TOKEN || supplied.length !== LOOKUP_API_TOKEN.length || !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(LOOKUP_API_TOKEN))) throw bad('Not authorised.', 401);
+}
+route('GET', /^\/api\/v1\/lookup\/(\d{8,14})$/, { open: true }, ({ req, params }) => {
+  requireLookupToken(req);
   const barcode = barcodeOf(params[0]);
   const product = db.prepare('SELECT barcode, name, brand, size FROM products WHERE barcode = ?').get(barcode) || null;
   const prices = pricesFor(barcode);
   return { barcode, product, typical: prices.typical, latest: prices.latest.map(({ userId, receiptId, ...rest }) => rest) };
+});
+
+// Shopping-list matching for the family hub: up to 100 items, each by barcode (exact) or by name (every word of the
+// name in the product's name or brand; "Beef mince" finds "Coles Beef Mince 500g"). Best name match = the shortest
+// product name that has prices. Returns the typical price and the cheapest latest counted price, no user details.
+const singularWord = (w) => (/(?:ss|us|is)$/.test(w) ? w : /ies$/.test(w) ? `${w.slice(0, -3)}y` : /(?:oes|ches|shes|xes)$/.test(w) ? w.slice(0, -2) : /s$/.test(w) ? w.slice(0, -1) : w);
+function nameWords(name) {
+  return String(name || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ')
+    .filter((w) => w.length >= 2 && !/^\d/.test(w)).map(singularWord).slice(0, 6);
+}
+function matchByName(name) {
+  const words = nameWords(name);
+  if (!words.length) return null;
+  const where = words.map(() => `(' ' || lower(name) || ' ' || lower(brand) || ' ') LIKE ?`).join(' AND ');
+  const rows = db.prepare(`SELECT barcode, name, brand, size,
+      EXISTS (SELECT 1 FROM prices p WHERE p.barcode = products.barcode AND p.status IN ${COUNTED}) AS priced
+    FROM products WHERE ${where} ORDER BY priced DESC, length(name) ASC LIMIT 1`).all(...words.map((w) => `%${w}%`));
+  return rows[0] || null;
+}
+function shoppingMatch(item) {
+  let product = null; let matchedBy = null;
+  const code = String(item?.barcode || '').replace(/\D/g, '');
+  if (code.length >= 8 && code.length <= 14) {
+    product = db.prepare('SELECT barcode, name, brand, size FROM products WHERE barcode = ?').get(code) || null;
+    if (product) matchedBy = 'barcode';
+  }
+  if (!product && item?.name) { product = matchByName(clean(item.name, 120)); if (product) matchedBy = 'name'; }
+  if (!product) return null;
+  const { latest, typical } = pricesFor(product.barcode);
+  const cheapest = latest[0] ? { priceCents: latest[0].priceCents, onSpecial: Boolean(latest[0].onSpecial), observedOn: latest[0].observedOn,
+    chain: latest[0].chain, suburb: latest[0].suburb, state: latest[0].state } : null;
+  return { matchedBy, product: { barcode: product.barcode, name: product.name, brand: product.brand, size: product.size }, typical, cheapest };
+}
+route('POST', /^\/api\/v1\/match$/, { open: true }, async ({ req }) => {
+  requireLookupToken(req);
+  const body = await readJson(req);
+  const items = Array.isArray(body.items) ? body.items.slice(0, 100) : [];
+  return { matches: items.map((item) => shoppingMatch(item)) };
 });
 
 // ── static files ────────────────────────────────────────────────────────────
