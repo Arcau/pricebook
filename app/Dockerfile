@@ -6,7 +6,9 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY server.js ./
 COPY public ./public
-RUN mkdir -p /app/data && chown -R node:node /app
+# npm isn't used (no dependencies) and carries its own CVEs, so leave it out of the image
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+ && mkdir -p /app/data && chown -R node:node /app
 USER node
 EXPOSE 3020
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
